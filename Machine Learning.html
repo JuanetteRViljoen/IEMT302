@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Forecast Next-Week Product Sales (Inventory Planning)</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --card: #121a33;
+    --muted: #8fa1c7;
+    --text: #e6eeff;
+    --accent: #6fb1ff;
+    --accent-2: #4be0a8;
+    --warn: #ffcd57;
+    --danger: #ff7a7a;
+    --border: #263255;
+  }
+  html, body {
+    background: radial-gradient(1200px 800px at 20% -10%, #172345 0%, #0b1020 60%) no-repeat, var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;
+    margin: 0;
+    line-height: 1.4;
+  }
+  .container {
+    max-width: 1100px;
+    margin: 28px auto 80px;
+    padding: 0 16px;
+  }
+  h1, h2, h3 {
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+  h1 { font-size: 26px; margin: 0 0 12px; }
+  h2 { font-size: 20px; margin: 28px 0 10px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; color: var(--muted); }
+  .card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0)) , var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    margin: 14px 0;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+  label { display: block; font-weight: 600; margin-bottom: 6px; color: var(--muted); }
+  input[type="number"], input[type="text"], select, textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: #0e1630;
+    color: var(--text);
+    outline: none;
+  }
+  input[type="checkbox"] {
+    transform: translateY(2px);
+    margin-right: 8px;
+  }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .row > * { flex: 1 1 auto; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    color: var(--text);
+    background: linear-gradient(180deg, #1d2a53, #162043);
+    cursor: pointer;
+    user-select: none;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.primary {
+    background: linear-gradient(180deg, #2b5cc7, #2a4ea3);
+    border-color: #2a4ea3;
+  }
+  .btn.ghost {
+    background: transparent;
+  }
+  .muted { color: var(--muted); }
+  .success { color: var(--accent-2); }
+  .warn { color: var(--warn); }
+  .danger { color: var(--danger); }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    overflow: hidden;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  th { background: #0f1a36; color: var(--muted); font-weight: 600; }
+  .pill {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #142047;
+    border: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .small { font-size: 12px; }
+  .kpi {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px;
+  }
+  @media (max-width: 900px) { .kpi { grid-template-columns: 1fr; } }
+  .kpi .item {
+    padding: 12px; background: #0e1630; border: 1px solid var(--border); border-radius: 12px;
+  }
+  .kpi .item .label { font-size: 12px; color: var(--muted); }
+  .kpi .item .value { font-size: 20px; font-weight: 700; }
+  .hr { height: 1px; background: var(--border); margin: 12px 0; }
+  .help {
+    font-size: 13px; color: var(--muted);
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>Predict Next-Week Product Sales</h1>
+    <div class="muted">Scenario: Forecast weekly units sold to avoid overstock and stockouts. Train a linear model from your past sales and predict.</div>
+
+    <div class="card">
+      <h2>1) Load Training Data</h2>
+      <div class="row" style="gap:10px;">
+        <input id="fileInput" type="file" accept=".csv" />
+        <button class="btn" id="btnLoadDemo">Load demo data</button>
+        <span class="pill" id="dataStatus">No data loaded</span>
+      </div>
+      <div class="help" style="margin-top:8px;">
+        CSV columns supported (header names are case-insensitive): <span class="mono">product_id, week, price, discount, prev_week_sales, foot_traffic, promoted, items_sold, units_sold, sales, label</span>.
+        The label is interpreted from one of: <span class="mono">units_sold</span>, <span class="mono">sales</span>, or <span class="mono">label</span>.
+        Tip: Do not include commas in numeric cells.
+      </div>
+
+      <h3>Feature selection</h3>
+      <div class="row">
+        <label><input type="checkbox" class="feat" value="price" checked />Price</label>
+        <label><input type="checkbox" class="feat" value="discount" checked />Discount (%)</label>
+        <label><input type="checkbox" class="feat" value="prev_week_sales" checked />Previous Week Sales</label>
+        <label><input type="checkbox" class="feat" value="foot_traffic" checked />Foot Traffic</label>
+        <label><input type="checkbox" class="feat" value="promoted" checked />Promoted (0/1)</label>
+        <label><input type="checkbox" class="feat" value="week" />Week (1–52)</label>
+        <label><input type="checkbox" class="feat" value="product_id" />Product ID</label>
+        <label><input type="checkbox" class="feat" value="items_sold" />Items Sold (use sparingly)</label>
+      </div>
+      <div class="help">Note: Including <span class="mono">items_sold</span> as a feature can leak the answer if it’s the same week as the label. Prefer historical signals like <span class="mono">prev_week_sales</span>.</div>
+
+      <div class="row" style="margin-top:10px;">
+        <label style="max-width:220px;">
+          Regularization λ
+          <input type="number" id="lambda" value="0.01" step="0.01" min="0" />
+        </label>
+        <button class="btn primary" id="btnTrain">Train Model</button>
+        <span class="pill" id="trainStatus">Model not trained</span>
+      </div>
+
+      <div id="preview" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>2) Model Summary</h2>
+      <div class="kpi">
+        <div class="item">
+          <div class="label">Training rows</div>
+          <div class="value" id="kpiRows">0</div>
+        </div>
+        <div class="item">
+          <div class="label">Features (incl. bias)</div>
+          <div class="value" id="kpiFeats">0</div>
+        </div>
+        <div class="item">
+          <div class="label">R² on training</div>
+          <div class="value" id="kpiR2">—</div>
+        </div>
+      </div>
+      <div id="coefTable"></div>
+      <div class="help" style="margin-top:8px;">
+        Learned formula: <span class="mono">y = b + Σ wᵢ·xᵢ</span>. Positive weights increase predicted sales when the feature increases (e.g., discount, promotion, foot traffic).
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3) Predict Next Week</h2>
+      <div class="grid">
+        <div>
+          <label>Product ID</label>
+          <input id="in_product_id" type="number" placeholder="e.g., 1065" />
+        </div>
+        <div>
+          <label>Week (1–52)</label>
+          <input id="in_week" type="number" min="1" max="52" placeholder="e.g., 45" />
+        </div>
+        <div>
+          <label>Price</label>
+          <input id="in_price" type="number" step="0.01" placeholder="e.g., 20.45" />
+        </div>
+        <div>
+          <label>Discount (%)</label>
+          <input id="in_discount" type="number" step="0.01" placeholder="e.g., 15" />
+        </div>
+        <div>
+          <label>Previous Week Sales</label>
+          <input id="in_prev_week_sales" type="number" step="1" placeholder="e.g., 800" />
+        </div>
+        <div>
+          <label>Foot Traffic</label>
+          <input id="in_foot_traffic" type="number" step="1" placeholder="e.g., 5700" />
+        </div>
+        <div>
+          <label>Promoted (0/1)</label>
+          <input id="in_promoted" type="number" min="0" max="1" step="1" placeholder="0 or 1" />
+        </div>
+        <div>
+          <label>Items Sold (optional)</label>
+          <input id="in_items_sold" type="number" step="1" placeholder="avoid unless historical" />
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <h3>Reorder Helper (optional)</h3>
+      <div class="grid">
+        <div>
+          <label>On-hand inventory</label>
+          <input id="in_on_hand" type="number" step="1" value="0" />
+        </div>
+        <div>
+          <label>Lead time (weeks)</label>
+          <input id="in_lead_weeks" type="number" step="0.5" value="1" />
+        </div>
+        <div>
+          <label>Safety stock</label>
+          <input id="in_safety" type="number" step="1" value="0" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:12px;">
+        <button class="btn primary" id="btnPredict">Predict</button>
+        <span class="pill" id="predStatus">Waiting for input</span>
+      </div>
+
+      <div class="kpi" style="margin-top:12px;">
+        <div class="item">
+          <div class="label">Predicted units (next week)</div>
+          <div class="value" id="kpiPred">—</div>
+        </div>
+        <div class="item">
+          <div class="label">Recommended reorder</div>
+          <div class="value" id="kpiReorder">—</div>
+        </div>
+        <div class="item">
+          <div class="label">Signals</div>
+          <div class="value small" id="kpiSignals">—</div>
+        </div>
+      </div>
+
+      <div id="insights" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Notes</h2>
+      <ul>
+        <li><b>Higher discounts and promotions</b> usually increase predicted sales if learned weights are positive for those features.</li>
+        <li><b>Foot traffic</b> is a strong demand signal. Combine with promotion to lift conversion.</li>
+        <li><b>Reorder</b> is computed as: <span class="mono">max(predicted_units * lead_time + safety_stock - on_hand, 0)</span>.</li>
+      </ul>
+    </div>
+  </div>
+
+<script>
+  // Minimal CSV parser supporting quoted values with commas
+  function parseCSV(text) {
+    const rows = [];
+    let row = [];
+    let cur = '';
+    let inQuotes = false;
+
+    function endCell() { row.push(cur); cur = ''; }
+    function endRow() { rows.push(row); row = []; }
+
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (c === '"') {
+        if (inQuotes && text[i + 1] === '"') {
+          cur += '"'; i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (c === ',' && !inQuotes) {
+        endCell();
+      } else if ((c === '\n' || c === '\r') && !inQuotes) {
+        if (cur.length > 0 || row.length > 0) endCell();
+        if (row.length) endRow();
+      } else {
+        cur += c;
+      }
+    }
+    if (cur.length > 0 || row.length > 0) { endCell(); endRow(); }
+    return rows;
+  }
+
+  function toNum(x) {
+    if (x === null || x === undefined) return NaN;
+    if (typeof x === 'number') return x;
+    const t = String(x).trim();
+    if (t === '') return NaN;
+    return Number(t);
+  }
+
+  function normalizeHeader(h) {
+    return String(h || '').trim().toLowerCase().replace(/\s+/g, '_');
+  }
+
+  function arraySum(a) { return a.reduce((s, v) => s + v, 0); }
+  function arrayMean(a) { return arraySum(a) / a.length; }
+
+  // Matrix helpers
+  function matTranspose(A) {
+    const m = A.length, n = A[0].length;
+    const T = Array.from({ length: n }, () => Array(m).fill(0));
+    for (let i = 0; i < m; i++) for (let j = 0; j < n; j++) T[j][i] = A[i][j];
+    return T;
+  }
+  function matMul(A, B) {
+    const m = A.length, p = A[0].length, n = B[0].length;
+    const C = Array.from({ length: m }, () => Array(n).fill(0));
+    for (let i = 0; i < m; i++) {
+      for (let k = 0; k < p; k++) {
+        const aik = A[i][k];
+        for (let j = 0; j < n; j++) C[i][j] += aik * B[k][j];
+      }
+    }
+    return C;
+  }
+  function identity(n) {
+    const I = Array.from({ length: n }, (_, i) =>
+      Array.from({ length: n }, (__, j) => (i === j ? 1 : 0))
+    );
+    return I;
+  }
+  function addRidge(XtX, lambda, interceptIndex = 0) {
+    const k = XtX.length;
+    const A = XtX.map((row, i) => row.slice());
+    for (let i = 0; i < k; i++) {
+      A[i][i] += (i === interceptIndex ? 0 : lambda);
+    }
+    return A;
+  }
+  // Solve A x = b via Gauss-Jordan elimination
+  function solveLinearSystem(A, b) {
+    const n = A.length;
+    const M = A.map((row, i) => row.concat([b[i][0]])); // augment with b
+    // Forward elimination
+    for (let col = 0; col < n; col++) {
+      // Pivot
+      let pivot = col;
+      for (let r = col + 1; r < n; r++) {
+        if (Math.abs(M[r][col]) > Math.abs(M[pivot][col])) pivot = r;
+      }
+      if (Math.abs(M[pivot][col]) < 1e-12) throw new Error('Matrix is singular or ill-conditioned.');
+      if (pivot !== col) { const tmp = M[col]; M[col] = M[pivot]; M[pivot] = tmp; }
+      // Normalize pivot row
+      const div = M[col][col];
+      for (let j = col; j <= n; j++) M[col][j] /= div;
+      // Eliminate others
+      for (let r = 0; r < n; r++) {
+        if (r === col) continue;
+        const factor = M[r][col];
+        for (let j = col; j <= n; j++) M[r][j] -= factor * M[col][j];
+      }
+    }
+    // Extract solution
+    const x = Array.from({ length: n }, (_, i) => [M[i][n]]);
+    return x;
+  }
+
+  function ridgeRegression(X, y, lambda) {
+    const Xt = matTranspose(X);
+    const XtX = matMul(Xt, X);
+    const XtX_r = addRidge(XtX, lambda, 0);
+    const Xty = matMul(Xt, y);
+    const w = solveLinearSystem(XtX_r, Xty); // (k+1) x 1
+    return w.map(row => row[0]);
+  }
+
+  function rSquared(yTrue, yPred) {
+    const yBar = arrayMean(yTrue);
+    let ssTot = 0, ssRes = 0;
+    for (let i = 0; i < yTrue.length; i++) {
+      ssTot += (yTrue[i] - yBar) ** 2;
+      ssRes += (yTrue[i] - yPred[i]) ** 2;
+    }
+    return (ssTot === 0) ? 1 : 1 - (ssRes / ssTot);
+  }
+
+  // State
+  let dataRows = [];     // raw objects with normalized headers
+  let features = ["price", "discount", "prev_week_sales", "foot_traffic", "promoted"];
+  let model = null;      // { weights, featOrder }
+  let trainYName = null; // label key
+
+  const fileInput = document.getElementById('fileInput');
+  const btnLoadDemo = document.getElementById('btnLoadDemo');
+  const btnTrain = document.getElementById('btnTrain');
+  const btnPredict = document.getElementById('btnPredict');
+  const lambdaInput = document.getElementById('lambda');
+  const dataStatus = document.getElementById('dataStatus');
+  const trainStatus = document.getElementById('trainStatus');
+  const previewDiv = document.getElementById('preview');
+  const coefTableDiv = document.getElementById('coefTable');
+
+  const kpiRows = document.getElementById('kpiRows');
+  const kpiFeats = document.getElementById('kpiFeats');
+  const kpiR2 = document.getElementById('kpiR2');
+  const kpiPred = document.getElementById('kpiPred');
+  const kpiReorder = document.getElementById('kpiReorder');
+  const kpiSignals = document.getElementById('kpiSignals');
+  const predStatus = document.getElementById('predStatus');
+
+  const featBoxes = Array.from(document.querySelectorAll('.feat'));
+  featBoxes.forEach(cb => cb.addEventListener('change', () => {
+    features = featBoxes.filter(x => x.checked).map(x => x.value);
+  }));
+
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    loadCSVText(text);
+  });
+
+  btnLoadDemo.addEventListener('click', () => {
+    const demo = `product_id,week,price,discount,prev_week_sales,foot_traffic,promoted,units_sold
+1065,41,22.00,5,180,5200,0,210
+1065,42,22.00,10,210,5400,1,260
+1065,43,21.50,12,260,5600,1,300
+1065,44,20.45,15,300,5700,1,340
+1065,45,20.45,15,340,5900,1,360
+2042,41,12.00,0,90,4100,0,95
+2042,42,12.00,5,95,4200,0,100
+2042,43,11.60,8,100,4400,1,130
+2042,44,11.20,10,130,4550,1,150
+2042,45,11.20,10,150,4700,1,165`;
+    loadCSVText(demo);
+  });
+
+  function loadCSVText(text) {
+    const rows = parseCSV(text);
+    if (!rows.length) return;
+    const headers = rows[0].map(normalizeHeader);
+    const objs = [];
+    for (let i = 1; i < rows.length; i++) {
+      if (!rows[i].length) continue;
+      const obj = {};
+      for (let j = 0; j < headers.length; j++) {
+        obj[headers[j]] = rows[i][j];
+      }
+      objs.push(obj);
+    }
+    // Normalize keys and coerce numbers
+    dataRows = objs.map(o => {
+      const out = {};
+      for (const [k, v] of Object.entries(o)) {
+        const nk = normalizeHeader(k);
+        const nv = toNum(v);
+        out[nk] = Number.isFinite(nv) ? nv : v;
+      }
+      return out;
+    });
+
+    // Determine label column
+    const labelCandidates = ["units_sold", "sales", "label"];
+    trainYName = labelCandidates.find(c => c in dataRows[0]);
+    if (!trainYName) {
+      // Fallback: if 'items_sold' exists and no explicit label, use it
+      if ("items_sold" in dataRows[0]) {
+        trainYName = "items_sold";
+      } else {
+        // Infer last numeric column as label
+        const keys = Object.keys(dataRows[0]);
+        trainYName = keys[keys.length - 1];
+      }
+    }
+
+    dataStatus.textContent = `Loaded ${dataRows.length} rows`;
+    renderPreview(dataRows.slice(0, 5));
+    trainStatus.textContent = 'Model not trained';
+    coefTableDiv.innerHTML = '';
+    kpiRows.textContent = String(dataRows.length);
+    kpiFeats.textContent = '0';
+    kpiR2.textContent = '—';
+    model = null;
+  }
+
+  function renderPreview(rows) {
+    if (!rows.length) { previewDiv.innerHTML = ''; return; }
+    const cols = Object.keys(rows[0]);
+    let html = '<div class="help">Preview (first 5 rows)</div><table><thead><tr>';
+    cols.forEach(c => html += `<th>${c}</th>`);
+    html += '</tr></thead><tbody>';
+    rows.forEach(r => {
+      html += '<tr>';
+      cols.forEach(c => html += `<td>${r[c]}</td>`);
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    previewDiv.innerHTML = html;
+  }
+
+  btnTrain.addEventListener('click', () => {
+    if (!dataRows.length) {
+      alert('Load training data first.');
+      return;
+    }
+    const lambda = Math.max(0, Number(lambdaInput.value) || 0);
+    // Build X and y
+    const featOrder = ['bias'].concat(features);
+    const X = [];
+    const y = [];
+    for (const row of dataRows) {
+      const yi = toNum(row[trainYName]);
+      if (!Number.isFinite(yi)) continue;
+      const xi = [1]; // bias
+      let skip = false;
+      for (const f of features) {
+        const v = toNum(row[f]);
+        if (!Number.isFinite(v)) { skip = true; break; }
+        xi.push(v);
+      }
+      if (skip) continue;
+      X.push(xi);
+      y.push([yi]);
+    }
+    if (X.length < features.length + 2) {
+      alert('Not enough valid rows after filtering. Check numeric columns and selected features.');
+      return;
+    }
+    let weights;
+    try {
+      weights = ridgeRegression(X, y, lambda);
+    } catch (e) {
+      alert('Training failed: ' + e.message);
+      return;
+    }
+    model = { weights, featOrder };
+    trainStatus.textContent = 'Model trained';
+    // Training R2
+    const preds = X.map(r => dot(weights, r));
+    const r2 = rSquared(y.map(z => z[0]), preds);
+    kpiFeats.textContent = String(weights.length);
+    kpiR2.textContent = r2.toFixed(3);
+    renderCoefs(model);
+  });
+
+  function dot(w, x) {
+    let s = 0;
+    for (let i = 0; i < w.length; i++) s += w[i] * x[i];
+    return s;
+  }
+
+  function renderCoefs(model) {
+    const { weights, featOrder } = model;
+    let html = '<table><thead><tr><th>Term</th><th>Weight</th><th>Effect</th></tr></thead><tbody>';
+    for (let i = 0; i < weights.length; i++) {
+      const name = featOrder[i];
+      const w = weights[i];
+      const effect = i === 0 ? 'Bias' : (w > 0 ? '<span class="success">Positive</span>' : (w < 0 ? '<span class="danger">Negative</span>' : 'Neutral'));
+      html += `<tr><td class="mono">${name}</td><td class="mono">${w.toFixed(4)}</td><td>${effect}</td></tr>`;
+    }
+    html += '</tbody></table>';
+    coefTableDiv.innerHTML = html;
+  }
+
+  btnPredict.addEventListener('click', () => {
+    if (!model) {
+      predStatus.textContent = 'Train the model first';
+      return;
+    }
+    const x = [1];
+    const inputs = {
+      product_id: toNum(document.getElementById('in_product_id').value),
+      week: toNum(document.getElementById('in_week').value),
+      price: toNum(document.getElementById('in_price').value),
+      discount: toNum(document.getElementById('in_discount').value),
+      prev_week_sales: toNum(document.getElementById('in_prev_week_sales').value),
+      foot_traffic: toNum(document.getElementById('in_foot_traffic').value),
+      promoted: toNum(document.getElementById('in_promoted').value),
+      items_sold: toNum(document.getElementById('in_items_sold').value),
+    };
+    for (const f of model.featOrder.slice(1)) {
+      const v = inputs[f];
+      if (!Number.isFinite(v)) {
+        predStatus.textContent = `Missing value for ${f}`;
+        return;
+      }
+      x.push(v);
+    }
+    let pred = dot(model.weights, x);
+    if (!Number.isFinite(pred)) pred = NaN;
+    kpiPred.textContent = Number.isFinite(pred) ? Math.max(0, pred).toFixed(0) : '—';
+    predStatus.textContent = Number.isFinite(pred) ? 'Prediction ready' : 'Prediction failed';
+
+    // Reorder calc
+    const onHand = toNum(document.getElementById('in_on_hand').value);
+    const lead = toNum(document.getElementById('in_lead_weeks').value);
+    const safety = toNum(document.getElementById('in_safety').value);
+    let reorder = NaN;
+    if (Number.isFinite(pred) && Number.isFinite(onHand) && Number.isFinite(lead) && Number.isFinite(safety)) {
+      const need = Math.max(0, pred * Math.max(0, lead) + Math.max(0, safety) - Math.max(0, onHand));
+      reorder = Math.ceil(need);
+      kpiReorder.textContent = String(reorder);
+    } else {
+      kpiReorder.textContent = '—';
+    }
+
+    // Signals based on signs
+    const signs = [];
+    const { weights, featOrder } = model;
+    for (let i = 1; i < weights.length; i++) {
+      const w = weights[i], f = featOrder[i];
+      if (Math.abs(w) < 1e-8) continue;
+      signs.push(`${f}:${w > 0 ? '+' : '−'}`);
+    }
+    kpiSignals.textContent = signs.length ? signs.join(' ') : '—';
+
+    // Insights
+    renderInsights(model, pred);
+  });
+
+  function renderInsights(model, pred) {
+    const { weights, featOrder } = model;
+    const wm = new Map();
+    for (let i = 0; i < weights.length; i++) wm.set(featOrder[i], weights[i]);
+
+    const bullet = [];
+    const wDiscount = wm.get('discount') ?? 0;
+    const wPromo = wm.get('promoted') ?? 0;
+    const wTraffic = wm.get('foot_traffic') ?? 0;
+    const wPrice = wm.get('price') ?? 0;
+
+    if (wDiscount > 0 || wPromo > 0) bullet.push('Products with higher discounts and promotions tend to sell more (positive weights).');
+    if (wTraffic > 0) bullet.push('More foot traffic indicates more potential customers and higher sales.');
+    if (wPrice < 0) bullet.push('Higher price reduces demand (negative weight).');
+    bullet.push(`Predicted units sold: ${Number.isFinite(pred) ? Math.max(0, pred).toFixed(0) : '—'}.`);
+
+    const insightsDiv = document.getElementById('insights');
+    insightsDiv.innerHTML = '<ul>' + bullet.map(b => `<li>${b}</li>`).join('') + '</ul>';
+  }
+</script>
+</body>
+</html>
